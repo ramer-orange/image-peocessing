@@ -9,23 +9,49 @@ from pathlib import Path
 import random
 import matplotlib.pyplot as plt
 from medpy.metric.binary import hd95
+from torch.utils.data import ConcatDataset, Subset
 
 # ---------- ハイパーパラメータ ----------
 H, W       = 256, 256
 batch_size = 32
 num_epochs = 30
-lr         = 1e-4
+lr         = 1e-3
 device     = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ---------- transform ----------
-base_tf = transforms.Compose([
-    transforms.Resize((H, W)),
-    transforms.ToTensor(),
-])
 def mask_to_class(pil_img):
     arr = np.array(pil_img)
     cls = (arr > 0).astype(np.int64)  # 0→0, 255→1 にマッピング
     return torch.from_numpy(cls)    # torch.LongTensor (H, W)
+
+base_tf = transforms.Compose([
+    transforms.Resize((H, W)),
+    transforms.ToTensor(),
+])
+
+# 水平反転
+flip_tf = transforms.Compose([
+    transforms.Resize((H, W)),
+    transforms.RandomHorizontalFlip(p=1.0),
+    transforms.ToTensor(),
+])
+
+# 回転のみ（±10度までランダム）
+rotate_tf = transforms.Compose([
+    transforms.Resize((H, W)),
+    transforms.RandomAffine(degrees=10),     # -10〜+10度の範囲で回転
+    transforms.ToTensor(),
+])
+
+# 平行移動のみ（X方向、Y方向に最大10%移動）
+trans_tf = transforms.Compose([
+    transforms.Resize((H, W)),
+    transforms.RandomAffine(
+        degrees=0,
+        translate=(0.1, 0.1)
+    ),
+    transforms.ToTensor(),
+])
 
 mask_tf = transforms.Compose([
     transforms.Resize((H, W), interpolation=Image.NEAREST),
@@ -65,21 +91,48 @@ dataset = SegmentationDataset(
     target_transform=mask_tf
 )
 
-# 7:1:2 にランダム分割
-n        = len(dataset)
-n_train  = int(n * 0.7)
-n_val    = int(n * 0.1)
-n_test   = n - n_train - n_val
 
-train_ds, val_ds, test_ds = random_split(
-    dataset,
-    [n_train, n_val, n_test],
-    generator=torch.Generator().manual_seed(42)
+n       = len(dataset)
+n_train = int(n * 0.7)
+n_val   = int(n * 0.1)
+n_test  = n - n_train - n_val
+
+# インデックスをシャッフルして分割
+indices = list(range(n))
+torch.manual_seed(42)
+random.shuffle(indices)
+
+train_idx = indices[:n_train]
+val_idx   = indices[n_train:n_train + n_val]
+test_idx  = indices[n_train + n_val:]
+
+# インスタンス生成
+full_base = SegmentationDataset(
+    images_dir, masks_dir,
+    transform=base_tf,
+    target_transform=mask_tf
 )
+aug_flip   = Subset(SegmentationDataset(images_dir, masks_dir, transform=flip_tf,   target_transform=mask_tf), train_idx)
+aug_rotate = Subset(SegmentationDataset(images_dir, masks_dir, transform=rotate_tf, target_transform=mask_tf), train_idx)
+aug_trans  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf,  target_transform=mask_tf), train_idx)
 
-train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
-val_dl   = DataLoader(val_ds,   batch_size=batch_size)
-test_dl  = DataLoader(test_ds,  batch_size=batch_size)
+# 元の訓練データを生成
+train_base = Subset(full_base, train_idx)
+
+# 水平反転、回転、平行移動の訓練データと結合
+train_ds = ConcatDataset([train_base, aug_flip, aug_rotate, aug_trans])
+
+# 検証データとテストデータの切り出し
+val_ds  = Subset(full_base, val_idx)
+test_ds = Subset(full_base, test_idx)
+
+train_dl = DataLoader(train_ds,   batch_size=batch_size, shuffle=True,  drop_last=True)
+val_dl   = DataLoader(val_ds,     batch_size=batch_size, shuffle=False, drop_last=False)
+test_dl  = DataLoader(test_ds,    batch_size=batch_size, shuffle=False, drop_last=False)
+
+print("全データ数(n):", n);
+print("元の訓練データ数(n_train):",  n_train)
+print("最終的な訓練データ数(train_ds):", len(train_ds))
 
 # ---------- U-Net実装 ----------
 class UNet(nn.Module):
