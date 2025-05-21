@@ -46,12 +46,32 @@ def run_training():
         transforms.ToTensor(),
     ])
 
-    # 平行移動のみ（X方向、Y方向に最大10%移動）
-    trans_tf = transforms.Compose([
+    # 平行移動のみ（X方向に約10px移動）
+    trans_tf_1 = transforms.Compose([
         transforms.Resize((H, W)),
         transforms.RandomAffine(
             degrees=0,
-            translate=(0.1, 0.1)
+            translate=(0.04, 0)
+        ),
+        transforms.ToTensor(),
+    ])
+    
+        # 平行移動のみ（Y方向に最大限約10px移動）
+    trans_tf_2 = transforms.Compose([
+        transforms.Resize((H, W)),
+        transforms.RandomAffine(
+            degrees=0,
+            translate=(0.0, 0.04)
+        ),
+        transforms.ToTensor(),
+    ])
+    
+            # 平行移動のみ（X方向、Y方向に最大限約10px移動）
+    trans_tf_3 = transforms.Compose([
+        transforms.Resize((H, W)),
+        transforms.RandomAffine(
+            degrees=0,
+            translate=(0.04, 0.04)
         ),
         transforms.ToTensor(),
     ])
@@ -98,7 +118,6 @@ def run_training():
     n       = len(dataset)
     n_train = int(n * 0.7)
     n_val   = int(n * 0.1)
-    n_test  = n - n_train - n_val
 
     # インデックスをシャッフルして分割
     indices = list(range(n))
@@ -117,13 +136,15 @@ def run_training():
     )
     aug_flip   = Subset(SegmentationDataset(images_dir, masks_dir, transform=flip_tf,   target_transform=mask_tf), train_idx)
     aug_rotate = Subset(SegmentationDataset(images_dir, masks_dir, transform=rotate_tf, target_transform=mask_tf), train_idx)
-    aug_trans  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf,  target_transform=mask_tf), train_idx)
+    aug_trans_1  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf_1,  target_transform=mask_tf), train_idx)
+    aug_trans_2  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf_2,  target_transform=mask_tf), train_idx)
+    aug_trans_3  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf_3,  target_transform=mask_tf), train_idx)
 
     # 元の訓練データを生成
     train_base = Subset(full_base, train_idx)
 
     # 水平反転、回転、平行移動の訓練データと結合
-    train_ds = ConcatDataset([train_base, aug_flip, aug_rotate, aug_trans])
+    train_ds = ConcatDataset([train_base, aug_flip, aug_rotate, aug_trans_1, aug_trans_2, aug_trans_3])
 
     # 検証データとテストデータの切り出し
     val_ds  = Subset(full_base, val_idx)
