@@ -17,8 +17,8 @@ def run_training():
     # ---------- ハイパーパラメータ ----------
     H, W       = 256, 256
     batch_size = 32
-    num_epochs = 1
-    lr         = 1e-3
+    num_epochs = 30
+    lr         = 5e-4
     device     = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # ---------- transform ----------
@@ -31,48 +31,11 @@ def run_training():
         transforms.Resize((H, W)),
         transforms.ToTensor(),
     ])
-
-    # 水平反転
-    flip_tf = transforms.Compose([
-        transforms.Resize((H, W)),
-        transforms.RandomHorizontalFlip(p=1.0),
-        transforms.ToTensor(),
-    ])
-
-    # 回転のみ（±10度までランダム）
-    rotate_tf = transforms.Compose([
-        transforms.Resize((H, W)),
-        transforms.RandomAffine(degrees=10),     # -10〜+10度の範囲で回転
-        transforms.ToTensor(),
-    ])
-
-    # 平行移動のみ（X方向に約10px移動）
-    trans_tf_1 = transforms.Compose([
-        transforms.Resize((H, W)),
-        transforms.RandomAffine(
-            degrees=0,
-            translate=(0.04, 0)
-        ),
-        transforms.ToTensor(),
-    ])
     
-        # 平行移動のみ（Y方向に最大限約10px移動）
-    trans_tf_2 = transforms.Compose([
+    train_tf = transforms.Compose([
         transforms.Resize((H, W)),
-        transforms.RandomAffine(
-            degrees=0,
-            translate=(0.0, 0.04)
-        ),
-        transforms.ToTensor(),
-    ])
-    
-            # 平行移動のみ（X方向、Y方向に最大限約10px移動）
-    trans_tf_3 = transforms.Compose([
-        transforms.Resize((H, W)),
-        transforms.RandomAffine(
-            degrees=0,
-            translate=(0.04, 0.04)
-        ),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomAffine(degrees=10, translate=(0.04, 0.04)),
         transforms.ToTensor(),
     ])
 
@@ -130,25 +93,22 @@ def run_training():
 
     # インスタンス生成
     full_base = SegmentationDataset(
-        images_dir, masks_dir,
+        images_dir,
+        masks_dir,
         transform=base_tf,
         target_transform=mask_tf
     )
-    aug_flip   = Subset(SegmentationDataset(images_dir, masks_dir, transform=flip_tf,   target_transform=mask_tf), train_idx)
-    aug_rotate = Subset(SegmentationDataset(images_dir, masks_dir, transform=rotate_tf, target_transform=mask_tf), train_idx)
-    aug_trans_1  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf_1,  target_transform=mask_tf), train_idx)
-    aug_trans_2  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf_2,  target_transform=mask_tf), train_idx)
-    aug_trans_3  = Subset(SegmentationDataset(images_dir, masks_dir, transform=trans_tf_3,  target_transform=mask_tf), train_idx)
+    train_base = SegmentationDataset(
+        images_dir,
+        masks_dir,
+        transform=train_tf,
+        target_transform=mask_tf
+    )
 
-    # 元の訓練データを生成
-    train_base = Subset(full_base, train_idx)
-
-    # 水平反転、回転、平行移動の訓練データと結合
-    train_ds = ConcatDataset([train_base, aug_flip, aug_rotate, aug_trans_1, aug_trans_2, aug_trans_3])
-
-    # 検証データとテストデータの切り出し
-    val_ds  = Subset(full_base, val_idx)
-    test_ds = Subset(full_base, test_idx)
+    # 訓練データ、検証データ、テストデータの切り出し
+    train_ds = Subset(train_base, train_idx)
+    val_ds   = Subset(full_base, val_idx)
+    test_ds  = Subset(full_base, test_idx)
 
     train_dl = DataLoader(train_ds,   batch_size=batch_size, shuffle=True,  drop_last=True)
     val_dl   = DataLoader(val_ds,     batch_size=batch_size, shuffle=False, drop_last=False)
